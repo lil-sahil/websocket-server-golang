@@ -1,7 +1,7 @@
 package main
 
-import "fmt"
+import "github.com/lil-sahil/websocket-server-golang/server"
 
 func main() {
-	fmt.Println("here")
+	server.Server()
 }
