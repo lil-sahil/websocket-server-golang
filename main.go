@@ -3,5 +3,8 @@ package main
 import "github.com/lil-sahil/websocket-server-golang/server"
 
 func main() {
-	server.Server()
+	// Initialize new TCP Server
+	server := server.NewServer("8080")
+	server.Run()
+
 }
