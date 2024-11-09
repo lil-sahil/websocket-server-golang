@@ -12,6 +12,15 @@ type server struct {
 	port string
 }
 
+type handshakeRequest struct {
+	method           string
+	httpVersion      string
+	upgrade          string
+	connection       string
+	websocketKey     string
+	websocketVersion string
+}
+
 func NewServer(port string) *server {
 	return &server{
 		port: port,
@@ -52,14 +61,12 @@ func handleHandshakeRequest(c net.Conn) {
 
 	requestLine, _ := reader.ReadString('\n')
 
-	fmt.Println(requestLine)
+	handShakeRequest := handshakeRequest{}
 
 	parts := strings.Split(strings.TrimSpace(requestLine), " ")
 
-	method := parts[0]
-	httpVersion := parts[2]
-
-	headers := make(map[string]string)
+	handShakeRequest.method = parts[0]
+	handShakeRequest.httpVersion = parts[2]
 
 	// Get the headers
 	for {
@@ -73,7 +80,19 @@ func handleHandshakeRequest(c net.Conn) {
 		headerParts := strings.SplitN(line, ":", 2)
 
 		if len(headerParts) == 2 {
-			headers[strings.TrimSpace(headerParts[0])] = strings.TrimSpace(headerParts[1])
+			key := strings.TrimSpace(headerParts[0])
+			value := strings.TrimSpace(headerParts[1])
+
+			switch key {
+			case "Upgrade":
+				handShakeRequest.upgrade = value
+			case "Connection":
+				handShakeRequest.connection = value
+			case "Sec-WebSocket-Key":
+				handShakeRequest.websocketKey = value
+			case "Sec-WebSocket-Version":
+				handShakeRequest.websocketVersion = value
+			}
 		}
 
 		if line == "\r\n" {
@@ -82,7 +101,7 @@ func handleHandshakeRequest(c net.Conn) {
 	}
 
 	// Verify
-	err := verifyHandshakeRequest(httpVersion, method, headers["Upgrade"], headers["Connection"], headers["Sec-WebSocket-Key"], headers["Sec-WebSocket-Version"])
+	err := handShakeRequest.verifyHandshakeRequest()
 
 	if err != nil {
 		fmt.Printf(err.Error())
@@ -94,34 +113,34 @@ func handleHandshakeRequest(c net.Conn) {
 	// c.Write([]byte(res))
 }
 
-func verifyHandshakeRequest(httpVersion, method, upgrade, connection, websocketKey, websocketVersion string) error {
+func (h *handshakeRequest) verifyHandshakeRequest() error {
 	// Verify http version
-	if httpVersion != "HTTP/1.1" {
-		return fmt.Errorf("HTTP version not supported. recieved %v, expected HTTP/1.1", httpVersion)
+	if h.httpVersion != "HTTP/1.1" {
+		return fmt.Errorf("HTTP version not supported. recieved %v, expected HTTP/1.1", h.httpVersion)
 	}
 
 	// Verify Method
-	if method != "GET" {
-		return fmt.Errorf("invalid method. require GET recieved %v", method)
+	if h.method != "GET" {
+		return fmt.Errorf("invalid method. require GET recieved %v", h.method)
 	}
 
 	// Verify Upgrade
-	if upgrade != "websocket" {
-		return fmt.Errorf("invalid upgrade specified. require websocket recieved %v", upgrade)
+	if h.upgrade != "websocket" {
+		return fmt.Errorf("invalid upgrade specified. require websocket recieved %v", h.upgrade)
 	}
 
 	// Verify Connection
-	if connection != "Upgrade" {
-		return fmt.Errorf("invalid connection specified. require upgrade recieved %v", connection)
+	if h.connection != "Upgrade" {
+		return fmt.Errorf("invalid connection specified. require upgrade recieved %v", h.connection)
 	}
 
 	// Verify Websocketkey
-	if websocketKey == "" {
+	if h.websocketKey == "" {
 		return fmt.Errorf("required websocket key to be passed")
 	}
 	// Verify websocket version
-	if websocketVersion == "" {
-		return fmt.Errorf("required websocket version to be passed")
+	if h.websocketVersion != "13" {
+		return fmt.Errorf("required websocket version 13, recieved %v", h.websocketVersion)
 	}
 
 	return nil
