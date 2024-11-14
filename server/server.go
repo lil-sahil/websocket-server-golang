@@ -2,6 +2,8 @@ package server
 
 import (
 	"bufio"
+	"crypto/sha1"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"net"
@@ -108,6 +110,14 @@ func handleHandshakeRequest(c net.Conn) {
 		c.Write([]byte(err.Error()))
 	}
 
+	// Derive Accept key
+	key, err := handShakeRequest.deriveAcceptKey()
+
+	// Formulate response
+	res := handShakeRequest.createHandShakeResponse(*key)
+
+	c.Write([]byte(res))
+
 	// res := `HTTP/1.1 101 Switching Protocols Upgrade: websocket Connection: Upgrade Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`
 
 	// c.Write([]byte(res))
@@ -146,6 +156,22 @@ func (h *handshakeRequest) verifyHandshakeRequest() error {
 	return nil
 }
 
-// func sendHandShakeResponse() {
+func (h *handshakeRequest) deriveAcceptKey() (*string, error) {
+	magicString := "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+	hasher := sha1.New()
 
-// }
+	_, err := hasher.Write([]byte(h.websocketKey + magicString))
+
+	if err != nil {
+		return nil, err
+	}
+
+	key := base64.URLEncoding.EncodeToString(hasher.Sum(nil))
+
+	return &key, nil
+}
+
+func (h *handshakeRequest) createHandShakeResponse(key string) string {
+	return fmt.Sprintf(
+		"HTTP/1.1 101 Switching Protocols Upgrade: websocket Connection: Upgrade Sec-WebSocket-Accept: %v", key)
+}

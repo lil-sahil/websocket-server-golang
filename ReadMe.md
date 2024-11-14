@@ -10,6 +10,11 @@ nc -zv localhost 80
 echo -n “Ground Control For Major Tom” | nc localhost 8080
 ```
 
+- Send curl command to mimic websocket handshake request (notice the -v command to see the header responses):
+```bash
+curl --include -v --no-buffer --header "Connection: Upgrade" --header "Upgrade: websocket" --header "Host: example.com:80" --header "Origin: http://example.com:80"   --header "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" --header "Sec-WebSocket-Version: 13" http://localhost:8080
+```
+
 ### Basic terminology
 
 - `byte` is the basic unit of data used to store and represent information. A byte is a group of 8 bits, which can represent 256 different values (from 0 to 255). When dealing with network communication, data is typically read and written as raw bytes, regardless of the type of data it represents (text, numbers, etc.).
