@@ -8,6 +8,8 @@ import (
 	"log"
 	"net"
 	"strings"
+
+	"github.com/lil-sahil/websocket-server-golang/utils"
 )
 
 type server struct {
@@ -55,6 +57,18 @@ func handleConnection(c net.Conn) {
 
 	// Hande the handshake request
 	handleHandshakeRequest(c)
+
+	// Create a message interceptor
+	recievedMessage := utils.NewRecieveMessage(c)
+
+	// Read message continuously
+	for {
+		err := recievedMessage.HandleReciveMessage()
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+		fmt.Println("recieving message")
+	}
 
 }
 
@@ -166,12 +180,12 @@ func (h *handshakeRequest) deriveAcceptKey() (*string, error) {
 		return nil, err
 	}
 
-	key := base64.URLEncoding.EncodeToString(hasher.Sum(nil))
+	key := base64.StdEncoding.EncodeToString(hasher.Sum(nil))
 
 	return &key, nil
 }
 
 func (h *handshakeRequest) createHandShakeResponse(key string) string {
 	return fmt.Sprintf(
-		"HTTP/1.1 101 Switching Protocols Upgrade: websocket Connection: Upgrade Sec-WebSocket-Accept: %v", key)
+		"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %v\r\n\r\n", key)
 }
