@@ -1,14 +1,17 @@
 package utils
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
 )
 
 type RecieveMessage struct {
-	c net.Conn
-	m []byte
+	c      net.Conn
+	m      []byte
+	buffer bytes.Buffer // buffer to store the bytes as they are recieved. This is used in the event when the FIN bit is not 1.
 }
 
 func NewRecieveMessage(c net.Conn) *RecieveMessage {
@@ -18,7 +21,8 @@ func NewRecieveMessage(c net.Conn) *RecieveMessage {
 }
 
 func (rm *RecieveMessage) HandleReciveMessage() error {
-	rm.m = make([]byte, 20)
+	// Read the first two bytes to get FIN, RSV1,2,3 and OPCODE values
+	rm.m = make([]byte, 2)
 
 	_, err := rm.c.Read(rm.m)
 
@@ -31,7 +35,9 @@ func (rm *RecieveMessage) HandleReciveMessage() error {
 
 	// handle FIN bit
 	if !rm.getFinBit() {
-		// TODO: handle the case if the message is not final
+		// handle the case if the message is not final
+		rm.buffer.Write(rm.m)
+
 		return errors.New("not yet implemented handling of streaming messages")
 	}
 
@@ -46,6 +52,10 @@ func (rm *RecieveMessage) HandleReciveMessage() error {
 	if !rm.handleOpcodeBits() {
 		return errors.New("not yet impelemnted handling non text data")
 	}
+
+	// ---
+	// Logic to check payload length
+	// ---
 
 	return nil
 
@@ -90,4 +100,52 @@ func (rm *RecieveMessage) handleOpcodeBits() bool {
 	}
 
 	return false
+}
+
+// Determine MASK
+// func (rm *RecieveMessage) determineMask() {
+// 	if rm.m[1]&0x80 != 0 {
+// 		// Therefore it is masked
+// 	}
+// }
+
+// Decode the payload length
+func (rm *RecieveMessage) decodePayload() (uint64, error) {
+	payloadLen := rm.m[1] & 0x7f
+
+	if payloadLen <= 125 {
+		return uint64(payloadLen), nil
+	}
+
+	if payloadLen == 126 {
+		// Read the next 16 bits
+		b := make([]byte, 2)
+
+		_, err := rm.c.Read(b)
+
+		if err != nil {
+			return 0, err
+		}
+
+		length := binary.BigEndian.Uint16(b)
+
+		return uint64(length), nil
+	}
+
+	// Read the next 64 bits = 8 bytes
+	b := make([]byte, 8)
+	_, err := rm.c.Read(b)
+
+	if err != nil {
+		return 0, err
+	}
+
+	// Check to make sure that the most significant bit is 0
+	if b[0]&0x80 != 0 {
+		return 0, errors.New("the most significant bit is not 0")
+	}
+
+	length := binary.BigEndian.Uint64(b)
+
+	return length, nil
 }
