@@ -11,7 +11,7 @@ import (
 type RecieveMessage struct {
 	c      net.Conn
 	m      []byte
-	buffer bytes.Buffer // buffer to store the bytes as they are recieved. This is used in the event when the FIN bit is not 1.
+	buffer bytes.Buffer // buffer to store the bytes as they are recieved.
 }
 
 func NewRecieveMessage(c net.Conn) *RecieveMessage {
@@ -34,12 +34,12 @@ func (rm *RecieveMessage) HandleReciveMessage() error {
 	fmt.Println(rm.m)
 
 	// handle FIN bit
-	if !rm.getFinBit() {
-		// handle the case if the message is not final
-		rm.buffer.Write(rm.m)
+	// if !rm.getFinBit() {
+	// 	// handle the case if the message is not final
+	// 	rm.buffer.Write(rm.m)
 
-		return errors.New("not yet implemented handling of streaming messages")
-	}
+	// 	return errors.New("not yet implemented handling of streaming messages")
+	// }
 
 	// // handle RSV bits
 	// if !rm.handleRSVBits() {
@@ -49,13 +49,23 @@ func (rm *RecieveMessage) HandleReciveMessage() error {
 	// }
 
 	// Handle opcode
-	if !rm.handleOpcodeBits() {
-		return errors.New("not yet impelemnted handling non text data")
-	}
+	// if !rm.handleOpcodeBits() {
+	// 	return errors.New("not yet impelemnted handling non text data")
+	// }
 
-	// ---
 	// Logic to check payload length
-	// ---
+	_, err = rm.decodePayload()
+
+	// Masking
+	maskingKey := make([]byte, 4)
+	rm.c.Read(maskingKey)
+
+	fmt.Println(maskingKey)
+
+	// Read the payload
+	// rm.c.Read()
+
+	fmt.Println(rm.buffer)
 
 	return nil
 
@@ -118,10 +128,12 @@ func (rm *RecieveMessage) decodePayload() (uint64, error) {
 	}
 
 	if payloadLen == 126 {
-		// Read the next 16 bits
+		// Read the next 16 bits and store in internal buffer
 		b := make([]byte, 2)
 
 		_, err := rm.c.Read(b)
+
+		rm.buffer.Write(b)
 
 		if err != nil {
 			return 0, err
@@ -139,6 +151,8 @@ func (rm *RecieveMessage) decodePayload() (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
+
+	rm.buffer.Write(b)
 
 	// Check to make sure that the most significant bit is 0
 	if b[0]&0x80 != 0 {
