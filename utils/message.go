@@ -1,17 +1,27 @@
 package utils
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
 )
 
+type frame struct {
+	header        []byte
+	fin           bool
+	rsv1          bool
+	rsv2          bool
+	rsv3          bool
+	opccode       byte
+	payloadLength uint64
+	payloadData   []byte
+	maskingKey    []byte
+}
+
 type RecieveMessage struct {
-	c      net.Conn
-	m      []byte
-	buffer bytes.Buffer // buffer to store the bytes as they are recieved.
+	c     net.Conn
+	frame frame
 }
 
 func NewRecieveMessage(c net.Conn) *RecieveMessage {
@@ -22,50 +32,52 @@ func NewRecieveMessage(c net.Conn) *RecieveMessage {
 
 func (rm *RecieveMessage) HandleReciveMessage() error {
 	// Read the first two bytes to get FIN, RSV1,2,3 and OPCODE values
-	rm.m = make([]byte, 2)
+	rm.frame.header = make([]byte, 2)
 
-	_, err := rm.c.Read(rm.m)
+	_, err := rm.c.Read(rm.frame.header)
 
 	if err != nil {
 		fmt.Println(err)
 		rm.c.Close()
 	}
 
-	fmt.Println(rm.m)
+	// Get FIN bit
+	rm.getFinBit()
 
-	// handle FIN bit
-	// if !rm.getFinBit() {
-	// 	// handle the case if the message is not final
-	// 	rm.buffer.Write(rm.m)
+	if !rm.frame.fin {
+		// handle the case if the message is not final
+		return errors.New("not yet implemented handling of streaming messages")
+	}
 
-	// 	return errors.New("not yet implemented handling of streaming messages")
-	// }
+	// Get the RSV Bits
+	rm.handleRSVBits()
 
-	// // handle RSV bits
-	// if !rm.handleRSVBits() {
-	// 	// TODO: handle the case if the rsv bits are not 0
-	// 	return errors.New("not yet implemented handling of non 0 rsv bits")
+	if rm.frame.rsv1 == false || rm.frame.rsv2 == false || rm.frame.rsv3 == false {
+		// TODO: handle the case if the rsv bits are not 0
+		return errors.New("not yet implemented handling of non 0 rsv bits")
 
-	// }
+	}
 
-	// Handle opcode
-	// if !rm.handleOpcodeBits() {
-	// 	return errors.New("not yet impelemnted handling non text data")
-	// }
+	// Get opcode bits
+	rm.handleOpcodeBits()
+
+	// To-do: handle opcode bit
+
+	// Determine if the message is masked
+	if !rm.determineMask() {
+		// It is not masked therefore return error
+		return errors.New("message is not masked")
+	}
 
 	// Logic to check payload length
-	_, err = rm.decodePayload()
+	err = rm.calculatePayloadLength()
 
-	// Masking
-	maskingKey := make([]byte, 4)
-	rm.c.Read(maskingKey)
+	if err != nil {
+		return err
+	}
 
-	fmt.Println(maskingKey)
-
-	// Read the payload
-	// rm.c.Read()
-
-	fmt.Println(rm.buffer)
+	// Decode message
+	rm.decodeMessage()
 
 	return nil
 
@@ -73,58 +85,83 @@ func (rm *RecieveMessage) HandleReciveMessage() error {
 
 // Get the fin bit from the recieved message
 // if true then fin bit = 1.
-func (rm *RecieveMessage) getFinBit() bool {
+func (rm *RecieveMessage) getFinBit() {
 
 	// Do a bit wise operation
 	// First Byte: 1 0 0 0 0 0 0 1    (129 in decimal)
 	// MASK:       1 0 0 0 0 0 0 0    (128 in decimal, 0x80 in hex)
 	//             ---------------
 	// Result      1 0 0 0 0 0 0 0    (128 in decimal - not zero, so first bit was 1!)
-	if rm.m[0]&0x80 != 0 {
-		return true
+	if rm.frame.header[0]&0x80 != 0 {
+		rm.frame.fin = true
+		return
 	}
 
-	return false
+	rm.frame.fin = false
 }
 
 // Handle the RSV bits from the recieved message
-func (rm *RecieveMessage) handleRSVBits() bool {
+func (rm *RecieveMessage) handleRSVBits() {
 	//Bits 1-3 need to be 0
-	if rm.m[0]&0x40 == 0 && rm.m[0]&0x20 == 0 && rm.m[0]&0x10 == 0 {
-		return true
+	if rm.frame.header[0]&0x40 == 0 && rm.frame.header[0]&0x20 == 0 && rm.frame.header[0]&0x10 == 0 {
+		rm.frame.rsv1 = true
+		rm.frame.rsv2 = true
+		rm.frame.rsv3 = true
+		return
 	}
 
-	return false
+	rm.frame.rsv1 = false
+	rm.frame.rsv2 = false
+	rm.frame.rsv3 = false
 }
 
 // Handle the opcode from the recieved message
-func (rm *RecieveMessage) handleOpcodeBits() bool {
+func (rm *RecieveMessage) handleOpcodeBits() {
 	//Bits 4-7 need to be 0001 for text messages.
 	// The zeros block the rest, except for the last 4 bits.
 	// Byte: 	1 0 0 0 0 0 0 1
 	// Mask: 	0 0 0 0 1 1 1 1  (0x0F)
 	//       	---------------
 	// Result:  0 0 0 0 0 0 0 1  (1 - this the opcode)
-	if rm.m[0]&0x0F == 1 {
+	rm.frame.opccode = rm.frame.header[0] & 0x0F
+}
+
+// Determine MASK
+func (rm *RecieveMessage) determineMask() bool {
+	if rm.frame.header[1]&0x80 != 0 {
+		// Therefore it is masked
 		return true
 	}
 
 	return false
 }
 
-// Determine MASK
-// func (rm *RecieveMessage) determineMask() {
-// 	if rm.m[1]&0x80 != 0 {
-// 		// Therefore it is masked
-// 	}
-// }
+// Decode the message
+func (rm *RecieveMessage) decodeMessage() {
+	maskingKey := make([]byte, 4)
+	rm.c.Read(maskingKey)
 
-// Decode the payload length
-func (rm *RecieveMessage) decodePayload() (uint64, error) {
-	payloadLen := rm.m[1] & 0x7f
+	rm.frame.maskingKey = maskingKey
+
+	rm.frame.payloadData = make([]byte, rm.frame.payloadLength)
+
+	rm.c.Read(rm.frame.payloadData)
+	// Decode payload data
+	for i, octet := range rm.frame.payloadData {
+		rm.frame.payloadData[i] = octet ^ rm.frame.maskingKey[i%4]
+	}
+
+	fmt.Println(string(rm.frame.payloadData))
+
+}
+
+// get the payload length
+func (rm *RecieveMessage) calculatePayloadLength() error {
+	payloadLen := rm.frame.header[1] & 0x7f
 
 	if payloadLen <= 125 {
-		return uint64(payloadLen), nil
+		rm.frame.payloadLength = uint64(payloadLen)
+		return nil
 	}
 
 	if payloadLen == 126 {
@@ -133,15 +170,11 @@ func (rm *RecieveMessage) decodePayload() (uint64, error) {
 
 		_, err := rm.c.Read(b)
 
-		rm.buffer.Write(b)
-
 		if err != nil {
-			return 0, err
+			return err
 		}
-
-		length := binary.BigEndian.Uint16(b)
-
-		return uint64(length), nil
+		rm.frame.payloadLength = uint64(binary.BigEndian.Uint16(b))
+		return nil
 	}
 
 	// Read the next 64 bits = 8 bytes
@@ -149,17 +182,15 @@ func (rm *RecieveMessage) decodePayload() (uint64, error) {
 	_, err := rm.c.Read(b)
 
 	if err != nil {
-		return 0, err
+		return err
 	}
-
-	rm.buffer.Write(b)
 
 	// Check to make sure that the most significant bit is 0
 	if b[0]&0x80 != 0 {
-		return 0, errors.New("the most significant bit is not 0")
+		return errors.New("the most significant bit is not 0")
 	}
 
-	length := binary.BigEndian.Uint64(b)
+	rm.frame.payloadLength = binary.BigEndian.Uint64(b)
 
-	return length, nil
+	return nil
 }
