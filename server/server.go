@@ -9,11 +9,13 @@ import (
 	"net"
 	"strings"
 
+	"github.com/lil-sahil/websocket-server-golang/types"
 	"github.com/lil-sahil/websocket-server-golang/utils"
 )
 
 type server struct {
-	port string
+	port      string
+	callbacks map[types.CallbackEvent]func(string)
 }
 
 type handshakeRequest struct {
@@ -27,8 +29,13 @@ type handshakeRequest struct {
 
 func NewServer(port string) *server {
 	return &server{
-		port: port,
+		port:      port,
+		callbacks: make(map[types.CallbackEvent]func(string)),
 	}
+}
+
+func (s *server) RegisterCallBack(event types.CallbackEvent, cb func(string)) {
+	s.callbacks[event] = cb
 }
 
 func (s *server) Run() {
@@ -47,19 +54,19 @@ func (s *server) Run() {
 			log.Fatalf("an error was found during connection setup: %v", err)
 		}
 
-		go handleConnection(conn)
+		go s.handleConnection(conn)
 	}
 
 }
 
-func handleConnection(c net.Conn) {
+func (s *server) handleConnection(c net.Conn) {
 	fmt.Printf("Server connection: %v", c.RemoteAddr().String())
 
 	// Hande the handshake request
 	handleHandshakeRequest(c)
 
 	// Create a message interceptor
-	recievedMessage := utils.NewRecieveMessage(c)
+	recievedMessage := utils.NewRecieveMessage(c, s.callbacks)
 
 	// Read message continuously
 	for {
@@ -67,6 +74,7 @@ func handleConnection(c net.Conn) {
 		if err != nil {
 			fmt.Println(err.Error())
 		}
+
 		fmt.Println("recieving message")
 	}
 

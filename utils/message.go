@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+
+	"github.com/lil-sahil/websocket-server-golang/types"
 )
 
 type frame struct {
@@ -22,11 +24,13 @@ type frame struct {
 type RecieveMessage struct {
 	c     net.Conn
 	frame frame
+	cbs   map[types.CallbackEvent]func(string)
 }
 
-func NewRecieveMessage(c net.Conn) *RecieveMessage {
+func NewRecieveMessage(c net.Conn, cbs map[types.CallbackEvent]func(string)) *RecieveMessage {
 	return &RecieveMessage{
-		c: c,
+		c:   c,
+		cbs: cbs,
 	}
 }
 
@@ -78,6 +82,13 @@ func (rm *RecieveMessage) HandleReciveMessage() error {
 
 	// Decode message
 	rm.decodeMessage()
+
+	// Fire off callbacks
+	for key, cb := range rm.cbs {
+		if key == "message" {
+			cb(string(rm.frame.payloadData))
+		}
+	}
 
 	return nil
 
