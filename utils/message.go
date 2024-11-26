@@ -47,15 +47,42 @@ func NewSendMessage(payloadData string) *SendMessage {
 func (sm *SendMessage) CreateFrame() []byte {
 	// Determine the length of the message
 	mLen := len(sm.payloadData)
-	b := make([]byte, mLen+2)
+	payLoad := []byte(sm.payloadData)
 
 	// Set the fin bit - assume that it is 1 for now  and rsv bits as 000. = 1000 this is 0x8
 	// Set the opcode as 0001 this is 0x1
 	// Therefore the first byte of the frame will be 1000 0001 = 0x81
-	b[0] = byte(0x81)
-	b[1] = byte(mLen)
+	b := []byte{0x81}
 
-	copy(b[2:], []byte(sm.payloadData))
+	// if the payload length is less than or equal to 125, the payload length is stored in the 7bits of the 2nd byte.
+	// The first bit of the 2nd byte is used for masking.
+	// The reason for this is because 7**2 = 128 which means that it can stored in the 7 availaible bits of the 2nd byte.
+
+	// If the payload length is larger than 125 but less than 65535, then the 2nd byte is set to 126.
+	// This is done to let the client/server that is decoding the message frame to know that the exact payload length is found in the next two bytes or 16 bits.
+	// 2**16 = 65535
+
+	// If the payload is larger than 65535, then the 2nd byte is set to 127.
+	// This is done to let the client/server that is decoding the message frame to konw that the exact payload length is found in the next 8 bytes or 64 bits.
+
+	switch {
+	case mLen <= 125:
+		b = append(b, byte(mLen))
+	case mLen <= 65535:
+		// Set the 2nd byte as 126.
+		// The next 2 bytes need to be set as the payload length
+		// In order to do this, payloadLength >> 8 will get the Most Significant Byte. 0xFF will get the Least Significant Byte
+		// ex: Suppose we want to encode the value 260 into two bytes - which we know to be 00000001 00000100
+		// 260 >> 8 = 00000001
+		// 260 & 0xFF = 00000001 00000100
+		//                       11111111
+		//            =          00000100
+		b = append(b, 126, byte(mLen>>8), byte(mLen&0xFF))
+	default:
+		b = append(b, 127, byte(mLen>>54), byte(mLen>>48), byte(mLen>>40), byte(mLen>>32), byte(mLen>>24), byte(mLen>>16), byte(mLen>>8), byte(mLen&0xFF))
+	}
+
+	b = append(b, payLoad...)
 
 	return b
 }

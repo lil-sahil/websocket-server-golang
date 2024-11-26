@@ -21,6 +21,10 @@ func main() {
 		}
 	})
 
+	server.RegisterCallBack(types.MessageEvent, func(e string) {
+		server.SendMessage("message recieved")
+	})
+
 	server.Run()
 
 }
