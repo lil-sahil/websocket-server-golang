@@ -27,11 +27,43 @@ type RecieveMessage struct {
 	cbs   map[types.CallbackEvent]func(string)
 }
 
+type SendMessage struct {
+	payloadData string
+}
+
 func NewRecieveMessage(c net.Conn, cbs map[types.CallbackEvent]func(string)) *RecieveMessage {
 	return &RecieveMessage{
 		c:   c,
 		cbs: cbs,
 	}
+}
+
+func NewSendMessage(payloadData string) *SendMessage {
+	return &SendMessage{
+		payloadData: payloadData,
+	}
+}
+
+func (sm *SendMessage) CreateFrame() []byte {
+	// Determine the length of the message
+	mLen := len(sm.payloadData)
+	b := make([]byte, mLen+2)
+
+	// Set the fin bit - assume that it is 1 for now  and rsv bits as 000. = 1000 this is 0x8
+	// Set the opcode as 0001 this is 0x1
+	// Therefore the first byte of the frame will be 1000 0001 = 0x81
+	b[0] = byte(0x81)
+	b[1] = byte(mLen)
+
+	copy(b[2:], []byte(sm.payloadData))
+
+	return b
+}
+
+func (sm *SendMessage) SendMessage(c net.Conn) {
+	frame := sm.CreateFrame()
+	fmt.Println(frame)
+	c.Write(frame)
 }
 
 func (rm *RecieveMessage) HandleReciveMessage() error {

@@ -14,8 +14,9 @@ import (
 )
 
 type server struct {
-	port      string
-	callbacks map[types.CallbackEvent]func(string)
+	port       string
+	callbacks  map[types.CallbackEvent]func(string)
+	connection net.Conn
 }
 
 type handshakeRequest struct {
@@ -38,6 +39,16 @@ func (s *server) RegisterCallBack(event types.CallbackEvent, cb func(string)) {
 	s.callbacks[event] = cb
 }
 
+func (s *server) SendMessage(message string) {
+	// Create a new message
+	m := utils.NewSendMessage(message)
+
+	m.SendMessage(s.connection)
+
+	log.Print("sending message")
+
+}
+
 func (s *server) Run() {
 	l, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%v", s.port))
 
@@ -54,6 +65,8 @@ func (s *server) Run() {
 			log.Fatalf("an error was found during connection setup: %v", err)
 		}
 
+		s.connection = conn
+
 		go s.handleConnection(conn)
 	}
 
@@ -69,14 +82,24 @@ func (s *server) handleConnection(c net.Conn) {
 	recievedMessage := utils.NewRecieveMessage(c, s.callbacks)
 
 	// Read message continuously
-	for {
-		err := recievedMessage.HandleReciveMessage()
-		if err != nil {
-			fmt.Println(err.Error())
+	go func() {
+		for {
+			err := recievedMessage.HandleReciveMessage()
+			if err != nil {
+				fmt.Println(err.Error())
+			}
 		}
+	}()
 
-		fmt.Println("recieving message")
-	}
+	// // Send messages
+	// go func() {
+	// 	for {
+	// 		c.Write([]byte{129, 5, 72, 101, 108, 108, 111})
+	// 		fmt.Println("sending message")
+
+	// 		time.Sleep(time.Second * 5)
+	// 	}
+	// }()
 
 }
 

@@ -14,6 +14,10 @@ func main() {
 	server.RegisterCallBack(types.MessageEvent, func(e string) {
 		if e == "hello" {
 			fmt.Println("hi")
+
+			// Send a message to the client
+			server.SendMessage("hiya")
+
 		}
 	})
 
